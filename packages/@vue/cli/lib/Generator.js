@@ -7,6 +7,9 @@ const writeFileTree = require('./util/writeFileTree')
 const inferRootOptions = require('./util/inferRootOptions')
 const normalizeFilePaths = require('./util/normalizeFilePaths')
 const { runTransformation } = require('vue-codemod')
+const Module = require('module')
+const path = require('path')
+
 const {
   semver,
 
@@ -111,6 +114,7 @@ module.exports = class Generator {
     invoking = false
   } = {}) {
     this.context = context
+    // this.testfunction(path.resolve(context, 'package.json'))
     this.plugins = sortPlugins(plugins)
     this.originalPkg = pkg
     this.pkg = Object.assign({}, pkg)
@@ -122,7 +126,7 @@ module.exports = class Generator {
     this.configTransforms = {}
     this.defaultConfigTransforms = defaultConfigTransforms
     this.reservedConfigTransforms = reservedConfigTransforms
-    this.invoking = invoking
+    this.invoking = invoking // 援引；祈求；唤起
     // for conflict resolution
     this.depSources = {}
     // virtual file tree
@@ -139,12 +143,23 @@ module.exports = class Generator {
     // load all the other plugins
     this.allPlugins = this.resolveAllPlugins()
 
-    const cliService = plugins.find(p => p.id === '@vue/cli-service')
+    const cliService = plugins.find(p => p.id === '@vue/cli-service') // cli-service的plugin
+
     const rootOptions = cliService
       ? cliService.options
       : inferRootOptions(pkg)
-
-    this.rootOptions = rootOptions
+    this.rootOptions = rootOptions // 得到 cli-service的options
+  }
+  testfunction (filename) {
+    console.log(path.dirname(filename));
+    // /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/gjf-test/package.json
+    const mod = new Module(filename, null)
+    mod.filename = filename
+    mod.paths = Module._nodeModulePaths(path.dirname(filename))
+  
+    mod._compile(`module.exports = require;`, filename)
+    console.log(mod.exports);
+    return mod.exports
   }
 
   async initPlugins () {
@@ -176,9 +191,11 @@ module.exports = class Generator {
     // apply generators from plugins
     for (const plugin of this.plugins) {
       const { id, apply, options } = plugin
-      const api = new GeneratorAPI(id, this, options, rootOptions)
-      await apply(api, options, rootOptions, invoking)
-
+      // console.log('plugin', plugin);
+      const api = new GeneratorAPI(id, this, options, rootOptions) // api是当前plugin对象生成的generator对象的包装
+      console.log('开始api');
+      await apply(api, options, rootOptions, invoking) // applay相当于require，就是把plugin的入口文件加载一遍。
+      console.log('apply完了');
       if (apply.hooks) {
         // while we execute the entire `hooks` function,
         // only the `afterInvoke` hook is respected
@@ -187,6 +204,7 @@ module.exports = class Generator {
       }
     }
     // restore "any" hooks
+    
     this.afterAnyInvokeCbs = afterAnyInvokeCbsFromPlugins
   }
 
@@ -194,27 +212,50 @@ module.exports = class Generator {
     extractConfigFiles = false,
     checkExisting = false
   } = {}) {
+    // extractConfigFiles为false
     await this.initPlugins()
-
-    // save the file system before applying plugin for comparison
+    
+    // 在应用插件之前保存文件系统，以便比较
     const initialFiles = Object.assign({}, this.files)
-    // extract configs from package.json into dedicated files.
+    // 从包中提取配置。Json转换为专用文件。函数调完没啥效果，因为内部逻辑if条件都不成立
     this.extractConfigFiles(extractConfigFiles, checkExisting)
-    // wait for file resolve
+    // 等待文件解析
     await this.resolveFiles()
     // set package.json
     this.sortPkg()
     this.files['package.json'] = JSON.stringify(this.pkg, null, 2) + '\n'
-    // write/update file tree to disk
+    // console.log(this.files); // 得到各个文件的"路径/名称"为键名、content为值的Map对象
+    // 将文件树写入磁盘
     await writeFileTree(this.context, this.files, initialFiles, this.filesModifyRecord)
+    // console.log(gjf);
   }
 
   extractConfigFiles (extractAll, checkExisting) {
+    // false, false
+    // 整合所有依赖的配置文件
     const configTransforms = Object.assign({},
       defaultConfigTransforms,
       this.configTransforms,
       reservedConfigTransforms
     )
+    /* 
+    configTransforms = {
+      babel: ConfigTransform { fileDescriptor: { js: [Array] } },
+      postcss: ConfigTransform {
+        fileDescriptor: { js: [Array], json: [Array], yaml: [Array] }
+      },
+      eslintConfig: ConfigTransform {
+        fileDescriptor: { js: [Array], json: [Array], yaml: [Array] }
+      },
+      jest: ConfigTransform { fileDescriptor: { js: [Array] } },
+      browserslist: ConfigTransform { fileDescriptor: { lines: [Array] } },
+      'lint-staged': ConfigTransform {
+        fileDescriptor: { js: [Array], json: [Array], yaml: [Array] }
+      },
+      vue: ConfigTransform { fileDescriptor: { js: [Array] } }
+    }
+     */
+    
     const extract = key => {
       if (
         configTransforms[key] &&
@@ -292,6 +333,7 @@ module.exports = class Generator {
   }
 
   resolveAllPlugins () {
+    // 整理dev和生产依赖，并做sort排序
     const allPlugins = []
     Object.keys(this.pkg.dependencies || {})
       .concat(Object.keys(this.pkg.devDependencies || {}))
@@ -305,15 +347,15 @@ module.exports = class Generator {
   }
 
   async resolveFiles () {
-    const files = this.files
-    for (const middleware of this.fileMiddlewares) {
+    const files = this.files // {}
+    for (const middleware of this.fileMiddlewares) { // middleware: [AsyncFunction (anonymous)]
       await middleware(files, ejs.render)
     }
-
     // normalize file paths on windows
     // all paths are converted to use / instead of \
-    normalizeFilePaths(files)
 
+    normalizeFilePaths(files) // 文件路径转换
+    console.log('注入前', files['src/main.js']);
     // handle imports and root option injections
     Object.keys(files).forEach(file => {
       let imports = this.imports[file]
@@ -336,6 +378,8 @@ module.exports = class Generator {
         )
       }
     })
+    console.log('注入后', files['src/main.js']);
+    console.log('注入后', files['public/favicon.ico']);
 
     for (const postProcess of this.postProcessFilesCbs) {
       await postProcess(files)

@@ -9,6 +9,7 @@ const semver = require('semver')
 // Use `Module.createRequire` if available (added in Node v12.2.0)
 // eslint-disable-next-line node/no-deprecated-api
 const createRequire = Module.createRequire || Module.createRequireFromPath || function (filename) {
+  // filename = /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/gjf-test/package.json
   const mod = new Module(filename, null)
   mod.filename = filename
   mod.paths = Module._nodeModulePaths(path.dirname(filename))
@@ -18,7 +19,7 @@ const createRequire = Module.createRequire || Module.createRequireFromPath || fu
   return mod.exports
 }
 
-function resolveFallback (request, options) {
+function resolveFallback(request, options) {
   const isMain = false
   const fakeParent = new Module('', null)
 
@@ -64,18 +65,24 @@ exports.resolveModule = function (request, context) {
     } catch (e) {
       resolvedPath = resolve(request, { paths: [context] })
     }
-  } catch (e) {}
+  } catch (e) { }
   return resolvedPath
 }
 
 exports.loadModule = function (request, context, force = false) {
+  // request, context
+  // @vue/cli-service/generator, /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/gjf-test
+  // @vue/cli-plugin-babel/generator, /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/gjf-test
+  // @vue/cli-plugin-eslint/generator, /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/gjf-test
   // createRequire doesn't work with jest mocked fs
   // (which we used in tests for cli-service)
   if (process.env.VUE_CLI_TEST && context === '/') {
-    return require(request)
+    return require(request) // require('@vue/cli-service')
   }
 
   try {
+    // 给当前目录的packagejson创建requrest（如：@vue/cli-service）
+    // console.log('loadModule2', createRequire(path.resolve(context, 'package.json'))(request));
     return createRequire(path.resolve(context, 'package.json'))(request)
   } catch (e) {
     const resolvedPath = exports.resolveModule(request, context)
@@ -95,7 +102,7 @@ exports.clearModule = function (request, context) {
   }
 }
 
-function clearRequireCache (id, map = new Map()) {
+function clearRequireCache(id, map = new Map()) {
   const module = require.cache[id]
   if (module) {
     map.set(id, true)

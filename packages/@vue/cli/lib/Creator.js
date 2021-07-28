@@ -46,7 +46,7 @@ const {
 const isManualMode = answers => answers.preset === '__manual__'
 
 module.exports = class Creator extends EventEmitter {
-  constructor (name, context, promptModules) {
+  constructor(name, context, promptModules) {
     super()
 
     this.name = name
@@ -67,7 +67,8 @@ module.exports = class Creator extends EventEmitter {
     promptModules.forEach(m => m(promptAPI))
   }
 
-  async create (cliOptions = {}, preset = null) {
+  async create(cliOptions = {}, preset = null) {
+
     const isTestOrDebug = process.env.VUE_CLI_TEST || process.env.VUE_CLI_DEBUG
     const { run, name, context, afterInvokeCbs, afterAnyInvokeCbs } = this
 
@@ -193,7 +194,7 @@ module.exports = class Creator extends EventEmitter {
       // in development, avoid installation process
       await require('./util/setupDevProject')(context)
     } else {
-      await pm.install()
+      // await pm.install()
     }
 
     // run generator
@@ -207,15 +208,14 @@ module.exports = class Creator extends EventEmitter {
       afterAnyInvokeCbs
     })
     await generator.generate({
-      extractConfigFiles: preset.useConfigFiles
+      extractConfigFiles: preset.useConfigFiles // false
     })
-
     // install additional deps (injected by generators)
     log(`📦  Installing additional dependencies...`)
     this.emit('creation', { event: 'deps-install' })
     log()
     if (!isTestOrDebug || process.env.VUE_CLI_TEST_DO_INSTALL_PLUGIN) {
-      await pm.install()
+      // await pm.install()
     }
 
     // run complete cbs if any (injected by generators)
@@ -277,12 +277,12 @@ module.exports = class Creator extends EventEmitter {
     generator.printExitLogs()
   }
 
-  run (command, args) {
+  run(command, args) {
     if (!args) { [command, ...args] = command.split(/\s+/) }
     return execa(command, args, { cwd: this.context })
   }
 
-  async promptAndResolvePreset (answers = null) {
+  async promptAndResolvePreset(answers = null) {
     // prompt
     if (!answers) {
       await clearConsole(true)
@@ -323,7 +323,7 @@ module.exports = class Creator extends EventEmitter {
     return preset
   }
 
-  async resolvePreset (name, clone) {
+  async resolvePreset(name, clone) {
     let preset
     const savedPresets = this.getPresets()
 
@@ -358,15 +358,31 @@ module.exports = class Creator extends EventEmitter {
   }
 
   // { id: options } => [{ id, apply, options }]
-  async resolvePlugins (rawPlugins, pkg) {
+  async resolvePlugins(rawPlugins, pkg) {
+    /* 
+      rawPlugins
+      <ref *1> {
+        '@vue/cli-plugin-babel': {},
+        '@vue/cli-plugin-eslint': { config: 'base', lintOn: [ 'save' ] },
+        '@vue/cli-service': {
+          projectName: 'gjf-test',
+          vueVersion: '3',
+          useConfigFiles: false,
+          cssPreprocessor: undefined,
+          plugins: [Circular *1]
+        }
+      }
+      pkg: packagejson的内容个，主要是新增了devDependencies的内容
+     */
     // ensure cli-service is invoked first
     rawPlugins = sortObject(rawPlugins, ['@vue/cli-service'], true)
     const plugins = []
     for (const id of Object.keys(rawPlugins)) {
-      const apply = loadModule(`${id}/generator`, this.context) || (() => {})
+      const apply = loadModule(`${id}/generator`, this.context) || (() => { })
       let options = rawPlugins[id] || {}
 
       if (options.prompts) {
+        console.log('request:' + `${id}/prompts`);
         let pluginPrompts = loadModule(`${id}/prompts`, this.context)
 
         if (pluginPrompts) {
@@ -384,18 +400,31 @@ module.exports = class Creator extends EventEmitter {
           options = await prompt(pluginPrompts)
         }
       }
-
+      // apply: 一个匿名函数
       plugins.push({ id, apply, options })
+      // plugin: [
+      //   {
+      //     id: '@vue/cli-service',
+      //     apply: [Function (anonymous)],
+      //     options: {
+      //       projectName: 'gjf-test',
+      //       vueVersion: '3',
+      //       useConfigFiles: false,
+      //       cssPreprocessor: undefined,
+      //       plugins: { '@vue/cli-plugin-babel': {}, '@vue/cli-plugin-eslint': [Object] }
+      //     }
+      //   }
+      // ]
     }
     return plugins
   }
 
-  getPresets () {
+  getPresets() {
     const savedOptions = loadOptions()
     return Object.assign({}, savedOptions.presets, defaults.presets)
   }
 
-  resolveIntroPrompts () {
+  resolveIntroPrompts() {
     const presets = this.getPresets()
     const presetChoices = Object.entries(presets).map(([name, preset]) => {
       let displayName = name
@@ -436,7 +465,7 @@ module.exports = class Creator extends EventEmitter {
     }
   }
 
-  resolveOutroPrompts () {
+  resolveOutroPrompts() {
     const outroPrompts = [
       {
         name: 'useConfigFiles',
@@ -507,7 +536,7 @@ module.exports = class Creator extends EventEmitter {
     return outroPrompts
   }
 
-  resolveFinalPrompts () {
+  resolveFinalPrompts() {
     // patch generator-injected prompts to only show in manual mode
     this.injectedPrompts.forEach(prompt => {
       const originalWhen = prompt.when || (() => true)
@@ -526,7 +555,7 @@ module.exports = class Creator extends EventEmitter {
     return prompts
   }
 
-  shouldInitGit (cliOptions) {
+  shouldInitGit(cliOptions) {
     if (!hasGit()) {
       return false
     }

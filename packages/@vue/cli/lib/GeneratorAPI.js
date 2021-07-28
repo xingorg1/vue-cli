@@ -31,7 +31,8 @@ function pruneObject (obj) {
 
   return obj
 }
-
+// 该文件用来包装各插件（包括cli/service）的generator对象，再封装各种方法，根据ejs将各个模块的template模版文件根据配置生成最终的框架初始化文件
+// TODO: 接下来要研究，生成的文件放在哪、怎么提取到用户的项目文件的？
 class GeneratorAPI {
   /**
    * @param {string} id - Id of the owner plugin
@@ -47,11 +48,23 @@ class GeneratorAPI {
 
     /* eslint-disable no-shadow */
     this.pluginsData = generator.plugins
-      .filter(({ id }) => id !== `@vue/cli-service`)
+      .filter(({ id }) => id !== `@vue/cli-service`) // plugins里去掉cli-service，剩余两个的参数
       .map(({ id }) => ({
-        name: toShortPluginId(id),
-        link: getPluginLink(id)
+        name: toShortPluginId(id), // '@vue/cli-plugin-babel' => babel
+        link: getPluginLink(id) // return `https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-${exports.toShortPluginId(id)}
       }))
+    /* 
+      this.pluginsData = [
+        {
+          name: 'babel',
+          link: 'https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-babel'
+        },
+        {
+          name: 'eslint',
+          link: 'https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-eslint'
+        }
+      ]
+     */
     /* eslint-enable no-shadow */
 
     this._entryFile = undefined
@@ -63,6 +76,37 @@ class GeneratorAPI {
    * @private
    */
   _resolveData (additionalData) {
+    /* 
+     返回值：
+     {
+      options: {
+        projectName: 'gjf-test',
+        vueVersion: '3',
+        useConfigFiles: false,
+        cssPreprocessor: undefined,
+        plugins: { '@vue/cli-plugin-babel': {}, '@vue/cli-plugin-eslint': [Object] }
+      },
+      rootOptions: {
+        projectName: 'gjf-test',
+        vueVersion: '3',
+        useConfigFiles: false,
+        cssPreprocessor: undefined,
+        plugins: { '@vue/cli-plugin-babel': {}, '@vue/cli-plugin-eslint': [Object] }
+      },
+      plugins: [
+        {
+          name: 'babel',
+          link: 'https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-babel'
+        },
+        {
+          name: 'eslint',
+          link: 'https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-eslint'
+        }
+      ],
+      doesCompile: true,
+      useBabel: true
+    }
+     */
     return Object.assign({
       options: this.options,
       rootOptions: this.rootOptions,
@@ -78,6 +122,7 @@ class GeneratorAPI {
    *   virtual files tree object, and an ejs render function. Can be async.
    */
   _injectFileMiddleware (middleware) {
+    // FIXME: 什么时候调的？
     this.generator.fileMiddlewares.push(middleware)
   }
 
@@ -280,15 +325,39 @@ class GeneratorAPI {
    * @param {object} [ejsOptions] - options for ejs.
    */
   render (source, additionalData = {}, ejsOptions = {}) {
-    const baseDir = extractCallDir()
+    // 传过来的参数，就是各个插件的generator/index.js或者generator.js运行render函数时的参数
+    /* 
+      当前是cli/service插件时，这里的参数就是  
+      // source = './template'
+      // additionalData ={ doesCompile: true, useBabel: true } 
+      // ejsOptions = {}
+    */
+    const baseDir = extractCallDir() // generator的目录地址 /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/node_modules/@vue/cli-service/generator
     if (isString(source)) {
-      source = path.resolve(baseDir, source)
-      this._injectFileMiddleware(async (files) => {
+      source = path.resolve(baseDir, source) // template模版的地址 /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/node_modules/@vue/cli-service/generator/template
+      this._injectFileMiddleware(async (files, ...args) => { // 初始化files为空
+        // 【核心逻辑】根据配置项获取template内容并渲染出最终模版结果
+        // 匿名函数没有arguments，你在这里打印那么多次...arguments干啥！
         const data = this._resolveData(additionalData)
         const globby = require('globby')
         const _files = await globby(['**/*'], { cwd: source, dot: true })
+        console.log(source, _files);
+        /* 
+          得到这个模版下的所有文件目录：
+          [
+            '_gitignore',
+            'jsconfig.json',
+            'src/App.vue',
+            'src/main.js',
+            'public/favicon.ico',
+            'public/index.html',
+            'src/assets/logo.png',
+            'src/components/HelloWorld.vue'
+          ]
+         */
         for (const rawPath of _files) {
-          const targetPath = rawPath.split('/').map(filename => {
+          const targetPath = rawPath.split('/').map(filename => { // 切割路径
+            // 给下划线开头的文件名转成“.”开头
             // dotfiles are ignored when published to npm, therefore in templates
             // we need to use underscore instead (e.g. "_gitignore")
             if (filename.charAt(0) === '_' && filename.charAt(1) !== '_') {
@@ -298,15 +367,17 @@ class GeneratorAPI {
               return `${filename.slice(1)}`
             }
             return filename
-          }).join('/')
-          const sourcePath = path.resolve(source, rawPath)
-          const content = renderFile(sourcePath, data, ejsOptions)
+          }).join('/') // 最终public/index.html这样的路径，又用“/”拼接了起来
+          const sourcePath = path.resolve(source, rawPath) // 找到模版文件的目标绝对路径： /Users/guojufeng/Documents/GithubCode/vue-cli/packages/@vue/cli/node_modules/@vue/cli-service/generator/template/_gitignore
+          const content = renderFile(sourcePath, data, ejsOptions) // 根据目标路径加载文件内容
           // only set file if it's not all whitespace, or is a Buffer (binary files)
           if (Buffer.isBuffer(content) || /[^\s]/.test(content)) {
+            // console.log('content', content.slice(0, 10), /[^\s]/.test(content));
             files[targetPath] = content
           }
         }
       })
+      // console.log(this.generator.fileMiddlewares); 此时便有了内容
     } else if (isObject(source)) {
       this._injectFileMiddleware(files => {
         const data = this._resolveData(additionalData)
@@ -478,12 +549,16 @@ function extractCallDir () {
 const replaceBlockRE = /<%# REPLACE %>([^]*?)<%# END_REPLACE %>/g
 
 function renderFile (name, data, ejsOptions) {
-  if (isBinaryFileSync(name)) {
-    return fs.readFileSync(name) // return buffer
+  // name文件的绝对路径，data为当前plugin的各种配置（_resolveData的返回值，比如options、rootOptions、plugins、doesCompile、useBabel）
+  // console.log('name', name);
+  if (isBinaryFileSync(name)) { // 检测是否是二进制文件，比如logo、favicon.ico
+    // console.log('isBinaryFileSync', isBinaryFileSync(name));
+    return fs.readFileSync(name) // 直接 return buffer
   }
-  const template = fs.readFileSync(name, 'utf-8')
+  const template = fs.readFileSync(name, 'utf-8') // 读取模版文件，但因为内部用了ejs语法自定义内容，所以需要接下来的处理
 
   // custom template inheritance via yaml front matter.
+  // 自定义模板yaml文件通过yaml-front-matter处理成普通的js或json文件
   // ---
   // extend: 'source-file'
   // replace: !!js/regexp /some-regex/
@@ -534,7 +609,7 @@ function renderFile (name, data, ejsOptions) {
     }
   }
 
-  return ejs.render(finalTemplate, data, ejsOptions)
+  return ejs.render(finalTemplate, data, ejsOptions) // 最终返回ejs处理后的内容，data是options
 }
 
 module.exports = GeneratorAPI

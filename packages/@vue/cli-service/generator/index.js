@@ -1,8 +1,12 @@
 module.exports = (api, options) => {
+  // 这个文件里， api就是生成的cli-service的GeneratorAPI。options就是当前plugin对应的options
+  // 该插件cli-service做的事情就是把vue的主版本、全家桶、ts、css等依赖确认一边，然后生成package.json
   api.render('./template', {
     doesCompile: api.hasPlugin('babel') || api.hasPlugin('typescript'),
     useBabel: api.hasPlugin('babel')
   })
+  console.log('api.render end');
+  console.log('vue版本 options.vueVersion', options.vueVersion);
 
   if (options.vueVersion === '3') {
     api.extendPackage({
